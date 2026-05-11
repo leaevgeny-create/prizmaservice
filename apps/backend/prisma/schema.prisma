@@ -1,0 +1,900 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────
+
+enum Role {
+  // Агрегатор (Призма Сервис)
+  AGGREGATOR_ADMIN       // Директор / зам. директора
+  AGGREGATOR_MANAGER     // Менеджер по работе с клиентами
+  AGGREGATOR_FINANCE     // Финансист
+  AGGREGATOR_SECURITY    // Служба безопасности агрегатора
+
+  // Заказчик
+  CUSTOMER_ADMIN         // Ответственный руководитель
+  CUSTOMER_MANAGER       // Менеджер объекта
+  CUSTOMER_SAFETY        // Служба безопасности заказчика
+
+  // Исполнитель
+  EXECUTOR_COMPANY       // Юридическое лицо
+  EXECUTOR_IP            // ИП
+  EXECUTOR_SELF_EMPLOYED // Самозанятый
+
+  // Внешние роли
+  EXPERT                 // Эксперт / Технадзор
+}
+
+enum UserStatus {
+  PENDING        // Ожидает верификации
+  VERIFIED       // Верифицирован
+  SUSPENDED      // Заблокирован
+  REJECTED       // Отклонён
+}
+
+enum CompanyType {
+  LLC            // ООО
+  JSC            // АО
+  IP             // ИП
+  SELF_EMPLOYED  // Самозанятый
+}
+
+enum CompanyStatus {
+  PENDING
+  VERIFIED
+  SUSPENDED
+  REJECTED
+}
+
+enum WorkType {
+  GLASS_GRINDING // Шлифовка стекла
+  PAINTING       // Малярные работы
+  GLASS_CLEANING // Мойка стекла
+  FACADE_WORKS   // Фасадные работы
+}
+
+enum ObjectStatus {
+  ACTIVE
+  COMPLETED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum OrderStatus {
+  DRAFT             // Черновик
+  PUBLISHED         // Опубликована
+  EXECUTOR_SEARCH   // Поиск исполнителя
+  NEGOTIATION       // Согласование
+  CONTRACT_SIGNED   // Договор подписан
+  IN_PROGRESS       // В работе
+  ACCEPTANCE        // На приёмке
+  COMPLETED         // Завершён
+  DISPUTED          // Спорная ситуация
+  CANCELLED         // Отменён
+}
+
+enum DefectStatementStatus {
+  DRAFT         // Черновик исполнителя
+  SUBMITTED     // Направлена на согласование
+  IN_REVIEW     // На рассмотрении
+  REVISION      // Возвращена на доработку
+  APPROVED      // Согласована
+  REJECTED      // Отклонена
+}
+
+enum AcceptanceStatus {
+  PENDING       // Ожидает приёмки
+  IN_PROGRESS   // Приёмка идёт
+  APPROVED      // Принято
+  REJECTED      // Отклонено (с замечаниями)
+  DISPUTED      // Спорная ситуация
+}
+
+enum ActType {
+  KS2  // Акт о приёмке выполненных работ
+  KS3  // Справка о стоимости
+}
+
+enum MovementType {
+  ISSUE    // Выдача исполнителю
+  RETURN   // Возврат от исполнителя
+  WRITEOFF // Списание
+}
+
+enum WorkOrderType {
+  HEIGHT_WORK  // Работы на высоте
+  FACADE_WORK  // Фасадные работы
+  GENERAL      // Общий наряд-допуск
+}
+
+enum WorkOrderStatus {
+  DRAFT
+  ISSUED
+  SIGNED       // Подписан всеми членами бригады
+  CLOSED
+  EXPIRED
+}
+
+enum DisputeStatus {
+  OPEN
+  EXPERT_ASSIGNED
+  UNDER_REVIEW
+  RESOLVED
+  CLOSED
+}
+
+enum DocumentType {
+  // Компания
+  CHARTER          // Устав
+  OGRN_CERT        // Свидетельство ОГРН
+  INN_CERT         // Свидетельство ИНН
+  POWER_OF_ATTORNEY // Доверенность
+
+  // Исполнитель - квалификация
+  QUALIFICATION_CERT // Квалификационное удостоверение
+  HEIGHT_PERMIT      // Допуск к высотным работам
+  SAFETY_CERT        // Удостоверение по ТБ
+
+  // Исполнитель - самозанятый
+  SELF_EMPLOYED_CERT // Справка о постановке на учёт
+
+  // Акты
+  WORK_ACT           // КС-2
+  COST_CERT          // КС-3
+  INVOICE            // Счёт
+  MATERIAL_INVOICE   // Накладная на материалы
+}
+
+enum NotificationType {
+  ORDER_NEW
+  ORDER_STATUS_CHANGED
+  DEFECT_SUBMITTED
+  DEFECT_APPROVED
+  ACCEPTANCE_REQUESTED
+  ACT_GENERATED
+  PAYMENT_RECEIVED
+  WEATHER_STOP_APPROVED
+  DISPUTE_OPENED
+  RATING_UPDATED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ПОЛЬЗОВАТЕЛИ И АУТЕНТИФИКАЦИЯ
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  phone        String?    @unique
+  passwordHash String
+  role         Role
+  status       UserStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  profile              UserProfile?
+  companyMemberships   CompanyMember[]
+  documents            Document[]
+  notifications        Notification[]
+  refreshTokens        RefreshToken[]
+  biometricRecords     BiometricRecord[]
+
+  // Как заказчик
+  createdOrders        Order[]           @relation("CustomerOrders")
+  createdObjects       ConstructionObject[]
+
+  // Как исполнитель
+  executorOrders       Order[]           @relation("ExecutorOrders")
+  defectStatements     DefectStatement[]
+  geoCheckIns          GeoCheckIn[]
+  weatherStops         WeatherStop[]
+
+  // Как эксперт
+  expertDisputes       Dispute[]         @relation("ExpertDisputes")
+
+  // Как менеджер агрегатора
+  managedOrders        Order[]           @relation("ManagerOrders")
+
+  // Рейтинг
+  ratingAsExecutor     ExecutorRating[]  @relation("ExecutorRating")
+  ratingAsCustomer     ExecutorRating[]  @relation("CustomerRating")
+
+  workOrderSignatures  WorkOrderSignature[]
+  acceptances          WorkAcceptance[]
+  materialMovements    MaterialMovement[]
+  safetyJournalEntries SafetyJournalEntry[]
+
+  subscription         Subscription?
+
+  @@map("users")
+}
+
+model UserProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  firstName   String
+  lastName    String
+  middleName  String?
+  inn         String?
+  snils       String?
+  position    String?  // Должность
+  photoUrl    String?
+
+  // Госуслуги / ЕСИА
+  gosuslugiId     String?  @unique
+  gosuslugiToken  String?  // Зашифрован
+
+  // Биометрия
+  biometricEnrolled Boolean @default(false)
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model BiometricRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // FACE, FINGERPRINT, WEBAUTHN
+  templateHash String  // Хэш биометрического шаблона (не хранится в открытом виде)
+  deviceId    String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("biometric_records")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// КОМПАНИИ
+// ─────────────────────────────────────────────────────────────────
+
+model Company {
+  id           String        @id @default(cuid())
+  type         CompanyType
+  name         String
+  shortName    String?
+  inn          String        @unique
+  ogrn         String?       @unique
+  kpp          String?
+  legalAddress String
+  actualAddress String?
+  bankAccount  String?
+  bik          String?
+  bankName     String?
+  status       CompanyStatus @default(PENDING)
+  verifiedAt   DateTime?
+  verifiedById String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  members      CompanyMember[]
+  documents    Document[]
+  objects      ConstructionObject[]
+  ratingHistory CompanyRating[]
+
+  @@map("companies")
+}
+
+model CompanyMember {
+  id        String     @id @default(cuid())
+  userId    String
+  companyId String
+  position  String?
+  isAdmin   Boolean    @default(false)
+  joinedAt  DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id])
+  company   Company    @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+  @@map("company_members")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ОБЪЕКТЫ И ЗАЯВКИ
+// ─────────────────────────────────────────────────────────────────
+
+model ConstructionObject {
+  id           String       @id @default(cuid())
+  customerId   String       // Владелец (пользователь-заказчик)
+  companyId    String?      // Компания заказчика
+  name         String
+  address      String
+  lat          Float?
+  lng          Float?
+  description  String?
+  status       ObjectStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  customer     User         @relation(fields: [customerId], references: [id])
+  company      Company?     @relation(fields: [companyId], references: [id])
+  orders       Order[]
+  materialStocks MaterialStock[]
+  responsiblePersons ObjectResponsible[]
+
+  @@map("construction_objects")
+}
+
+model ObjectResponsible {
+  id        String   @id @default(cuid())
+  objectId  String
+  userId    String
+  role      String   // "Ответственный за безопасность", "Производитель работ" и т.д.
+  assignedAt DateTime @default(now())
+
+  object    ConstructionObject @relation(fields: [objectId], references: [id])
+
+  @@map("object_responsibles")
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  objectId        String
+  customerId      String      // Заказчик
+  executorId      String?     // Исполнитель (после подбора)
+  managerId       String?     // Менеджер агрегатора
+
+  status          OrderStatus @default(DRAFT)
+  workTypes       WorkType[]
+  executorsNeeded Int         @default(1)
+  description     String?
+  requirements    String?     // Требования к квалификации
+
+  startDate       DateTime
+  endDate         DateTime
+  actualEndDate   DateTime?
+
+  contractAmount  Decimal?    @db.Decimal(15, 2)
+  contractUrl     String?     // Ссылка на подписанный договор
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  object          ConstructionObject @relation(fields: [objectId], references: [id])
+  customer        User        @relation("CustomerOrders", fields: [customerId], references: [id])
+  executor        User?       @relation("ExecutorOrders", fields: [executorId], references: [id])
+  manager         User?       @relation("ManagerOrders", fields: [managerId], references: [id])
+
+  defectStatements DefectStatement[]
+  acceptances      WorkAcceptance[]
+  workOrders       WorkOrder[]
+  weatherStops     WeatherStop[]
+  materialMovements MaterialMovement[]
+  geoCheckIns      GeoCheckIn[]
+  dispute          Dispute?
+  executorRatings  ExecutorRating[]
+  timesheets       Timesheet[]
+
+  @@map("orders")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ДЕФЕКТОВКА (ВЕДОМОСТЬ ОБЪЁМОВ)
+// ─────────────────────────────────────────────────────────────────
+
+model DefectStatement {
+  id          String                @id @default(cuid())
+  orderId     String
+  createdById String                // Кто создал (исполнитель или заказчик)
+  version     Int                   @default(1)
+  status      DefectStatementStatus @default(DRAFT)
+  comment     String?               // Комментарий при возврате на доработку
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  order       Order                 @relation(fields: [orderId], references: [id])
+  createdBy   User                  @relation(fields: [createdById], references: [id])
+  items       DefectItem[]
+  history     DefectStatementHistory[]
+
+  @@map("defect_statements")
+}
+
+model DefectItem {
+  id           String          @id @default(cuid())
+  statementId  String
+  lineNumber   Int
+  location     String          // Этаж, секция, помещение
+  workType     WorkType
+  description  String
+  unit         String          // кв.м, пог.м, шт.
+  quantity     Decimal         @db.Decimal(10, 3)
+  unitPrice    Decimal?        @db.Decimal(10, 2)
+  totalPrice   Decimal?        @db.Decimal(15, 2)
+  notes        String?
+
+  statement    DefectStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  photos       Photo[]
+
+  @@map("defect_items")
+}
+
+model DefectStatementHistory {
+  id          String   @id @default(cuid())
+  statementId String
+  changedById String
+  oldStatus   DefectStatementStatus
+  newStatus   DefectStatementStatus
+  comment     String?
+  changedAt   DateTime @default(now())
+
+  statement   DefectStatement @relation(fields: [statementId], references: [id])
+
+  @@map("defect_statement_history")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ПРИЁМКА РАБОТ
+// ─────────────────────────────────────────────────────────────────
+
+model WorkAcceptance {
+  id                String          @id @default(cuid())
+  orderId           String
+  defectStatementId String?         // Ведомость, на основе которой приёмка
+  acceptedById      String          // Представитель заказчика
+  status            AcceptanceStatus @default(PENDING)
+  biometricVerified Boolean         @default(false)
+  biometricTimestamp DateTime?
+  comments          String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  order             Order           @relation(fields: [orderId], references: [id])
+  acceptedBy        User            @relation(fields: [acceptedById], references: [id])
+  items             AcceptanceItem[]
+  remarks           AcceptanceRemark[]
+  acts              Act[]
+
+  @@map("work_acceptances")
+}
+
+model AcceptanceItem {
+  id           String         @id @default(cuid())
+  acceptanceId String
+  defectItemId String?        // Ссылка на строку ведомости
+  description  String
+  unit         String
+  planned      Decimal        @db.Decimal(10, 3)
+  actual       Decimal        @db.Decimal(10, 3)
+  approved     Boolean        @default(false)
+
+  acceptance   WorkAcceptance @relation(fields: [acceptanceId], references: [id], onDelete: Cascade)
+
+  @@map("acceptance_items")
+}
+
+model AcceptanceRemark {
+  id           String         @id @default(cuid())
+  acceptanceId String
+  description  String
+  severity     String         // CRITICAL, MAJOR, MINOR
+  resolvedAt   DateTime?
+  photos       Photo[]
+
+  acceptance   WorkAcceptance @relation(fields: [acceptanceId], references: [id])
+
+  @@map("acceptance_remarks")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// АКТЫ (КС-2, КС-3)
+// ─────────────────────────────────────────────────────────────────
+
+model Act {
+  id           String         @id @default(cuid())
+  acceptanceId String
+  type         ActType
+  number       String         // Номер акта
+  date         DateTime
+  periodFrom   DateTime
+  periodTo     DateTime
+  amount       Decimal        @db.Decimal(15, 2)
+  vatAmount    Decimal?       @db.Decimal(15, 2)
+  totalAmount  Decimal        @db.Decimal(15, 2)
+  documentUrl  String?        // Ссылка на PDF в S3
+  signedByAll  Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+
+  acceptance   WorkAcceptance @relation(fields: [acceptanceId], references: [id])
+  signatures   ActSignature[]
+
+  @@map("acts")
+}
+
+model ActSignature {
+  id          String   @id @default(cuid())
+  actId       String
+  userId      String
+  role        String   // CUSTOMER, EXECUTOR, AGGREGATOR
+  signedAt    DateTime @default(now())
+  signatureUrl String? // URL ЭЦП-файла
+  biometricVerified Boolean @default(false)
+
+  act         Act      @relation(fields: [actId], references: [id])
+
+  @@map("act_signatures")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ДАВАЛЬЧЕСКИЕ МАТЕРИАЛЫ
+// ─────────────────────────────────────────────────────────────────
+
+model MaterialStock {
+  id        String   @id @default(cuid())
+  objectId  String
+  name      String
+  article   String?  // Артикул
+  unit      String   // кг, л, м², шт.
+  quantity  Decimal  @db.Decimal(12, 3)  // Остаток
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  object    ConstructionObject @relation(fields: [objectId], references: [id])
+  movements MaterialMovement[]
+
+  @@map("material_stocks")
+}
+
+model MaterialMovement {
+  id          String       @id @default(cuid())
+  stockId     String
+  orderId     String
+  type        MovementType
+  quantity    Decimal      @db.Decimal(12, 3)
+  date        DateTime
+  signedById  String       // Кто подписал накладную
+  invoiceUrl  String?      // Накладная в S3
+  notes       String?
+  createdAt   DateTime     @default(now())
+
+  stock       MaterialStock @relation(fields: [stockId], references: [id])
+  order       Order         @relation(fields: [orderId], references: [id])
+  signedBy    User          @relation(fields: [signedById], references: [id])
+
+  @@map("material_movements")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// НАРЯД-ДОПУСКИ И БЕЗОПАСНОСТЬ
+// ─────────────────────────────────────────────────────────────────
+
+model WorkOrder {
+  id           String          @id @default(cuid())
+  orderId      String
+  type         WorkOrderType
+  number       String          // Номер наряд-допуска
+  issuedById   String          // Выдавший
+  responsibleId String         // Ответственный производитель работ
+  workDescription String
+  location     String
+  validFrom    DateTime
+  validTo      DateTime
+  status       WorkOrderStatus @default(DRAFT)
+  createdAt    DateTime        @default(now())
+
+  order        Order           @relation(fields: [orderId], references: [id])
+  signatures   WorkOrderSignature[]
+  safetyChecks SafetyCheck[]
+
+  @@map("work_orders")
+}
+
+model WorkOrderSignature {
+  id                String    @id @default(cuid())
+  workOrderId       String
+  userId            String
+  role              String    // ISSUER, RESPONSIBLE, WORKER
+  signedAt          DateTime  @default(now())
+  biometricVerified Boolean   @default(false)
+
+  workOrder         WorkOrder @relation(fields: [workOrderId], references: [id])
+  user              User      @relation(fields: [userId], references: [id])
+
+  @@unique([workOrderId, userId])
+  @@map("work_order_signatures")
+}
+
+model SafetyJournal {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  name      String   // Название журнала
+  createdAt DateTime @default(now())
+
+  entries   SafetyJournalEntry[]
+
+  @@map("safety_journals")
+}
+
+model SafetyJournalEntry {
+  id        String   @id @default(cuid())
+  journalId String
+  date      DateTime
+  type      String   // BRIEFING, INSPECTION, INCIDENT
+  content   String
+  signedById String
+  signedAt  DateTime @default(now())
+
+  journal   SafetyJournal @relation(fields: [journalId], references: [id])
+  signedBy  User          @relation(fields: [signedById], references: [id])
+
+  @@map("safety_journal_entries")
+}
+
+model SafetyCheck {
+  id          String    @id @default(cuid())
+  workOrderId String
+  checkDate   DateTime
+  result      String    // PASSED, FAILED
+  notes       String?
+  checkedById String
+
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+
+  @@map("safety_checks")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ГЕОЛОКАЦИЯ И ТАБЕЛЬ
+// ─────────────────────────────────────────────────────────────────
+
+model GeoCheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  orderId   String
+  lat       Float
+  lng       Float
+  accuracy  Float?   // Точность, метры
+  timestamp DateTime @default(now())
+  verified  Boolean  @default(false) // Подтверждена серверная валидация
+
+  user      User     @relation(fields: [userId], references: [id])
+  order     Order    @relation(fields: [orderId], references: [id])
+
+  @@map("geo_check_ins")
+}
+
+model Timesheet {
+  id         String   @id @default(cuid())
+  orderId    String
+  userId     String
+  date       DateTime @db.Date
+  hoursWorked Decimal @db.Decimal(4, 2)
+  isWeatherStop Boolean @default(false)
+  confirmed  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  order      Order    @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, userId, date])
+  @@map("timesheets")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// МЕТЕОНАБЛЮДЕНИЯ И ПРОСТОИ
+// ─────────────────────────────────────────────────────────────────
+
+model WeatherStop {
+  id            String   @id @default(cuid())
+  orderId       String
+  reportedById  String
+  date          DateTime @db.Date
+  reason        String   // Описание причины
+  weatherData   Json?    // Ответ метео-API
+  temperature   Float?   // °C
+  windSpeed     Float?   // м/с
+  precipitation Float?   // мм
+  approved      Boolean?
+  approvedById  String?
+  daysExtended  Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  order         Order    @relation(fields: [orderId], references: [id])
+  reportedBy    User     @relation(fields: [reportedById], references: [id])
+
+  @@map("weather_stops")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// РЕЙТИНГ
+// ─────────────────────────────────────────────────────────────────
+
+model ExecutorRating {
+  id              String   @id @default(cuid())
+  executorId      String
+  orderId         String
+  customerId      String   // Кто выставлял оценку
+
+  onTimeScore     Float    // 0-10: соблюдение сроков
+  qualityScore    Float    // 0-10: качество (на основе замечаний)
+  customerScore   Float?   // 0-10: субъективная оценка заказчика
+  overallScore    Float    // Итоговый рейтинг (взвешенный)
+
+  // Скрытая часть рейтинга (только для агрегатора)
+  hiddenNotes     String?
+  hiddenScore     Float?
+
+  remarksCount    Int      @default(0)
+  onTimePercent   Float    @default(100)
+  createdAt       DateTime @default(now())
+
+  executor        User     @relation("ExecutorRating", fields: [executorId], references: [id])
+  customer        User     @relation("CustomerRating", fields: [customerId], references: [id])
+  order           Order    @relation(fields: [orderId], references: [id])
+
+  @@unique([executorId, orderId])
+  @@map("executor_ratings")
+}
+
+model CompanyRating {
+  id          String   @id @default(cuid())
+  companyId   String
+  workType    WorkType
+  avgScore    Float
+  ordersCount Int
+  calculatedAt DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id])
+
+  @@map("company_ratings")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// СПОРЫ
+// ─────────────────────────────────────────────────────────────────
+
+model Dispute {
+  id            String        @id @default(cuid())
+  orderId       String        @unique
+  initiatedById String
+  reason        String
+  status        DisputeStatus @default(OPEN)
+  expertId      String?       // Назначенный эксперт
+  conclusion    String?
+  resolvedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order         Order         @relation(fields: [orderId], references: [id])
+  expert        User?         @relation("ExpertDisputes", fields: [expertId], references: [id])
+  messages      DisputeMessage[]
+
+  @@map("disputes")
+}
+
+model DisputeMessage {
+  id        String   @id @default(cuid())
+  disputeId String
+  senderId  String
+  content   String
+  attachments Photo[]
+  createdAt DateTime @default(now())
+
+  dispute   Dispute  @relation(fields: [disputeId], references: [id])
+
+  @@map("dispute_messages")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ДОКУМЕНТЫ И МЕДИА
+// ─────────────────────────────────────────────────────────────────
+
+model Document {
+  id           String       @id @default(cuid())
+  userId       String?
+  companyId    String?
+  type         DocumentType
+  fileName     String
+  fileUrl      String       // S3 URL
+  fileSize     Int?         // байты
+  mimeType     String?
+  verified     Boolean      @default(false)
+  verifiedById String?
+  verifiedAt   DateTime?
+  expiresAt    DateTime?    // Срок действия (для удостоверений)
+  createdAt    DateTime     @default(now())
+
+  user         User?        @relation(fields: [userId], references: [id])
+  company      Company?     @relation(fields: [companyId], references: [id])
+
+  @@map("documents")
+}
+
+model Photo {
+  id            String          @id @default(cuid())
+  url           String          // S3 URL
+  thumbnailUrl  String?
+  defectItemId  String?
+  remarkId      String?
+  disputeMsgId  String?
+  lat           Float?
+  lng           Float?
+  takenAt       DateTime?
+  uploadedAt    DateTime        @default(now())
+
+  defectItem    DefectItem?     @relation(fields: [defectItemId], references: [id])
+  remark        AcceptanceRemark? @relation(fields: [remarkId], references: [id])
+  disputeMsg    DisputeMessage? @relation(fields: [disputeMsgId], references: [id])
+
+  @@map("photos")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// УВЕДОМЛЕНИЯ
+// ─────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?            // Дополнительные данные (orderId, etc.)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ПОДПИСКИ
+// ─────────────────────────────────────────────────────────────────
+
+model Subscription {
+  id          String           @id @default(cuid())
+  userId      String           @unique
+  plan        SubscriptionPlan @default(FREE)
+  expiresAt   DateTime?
+  paymentId   String?          // ID транзакции платёжного шлюза
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id])
+
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ШАБЛОНЫ ДОКУМЕНТОВ
+// ─────────────────────────────────────────────────────────────────
+
+model DocumentTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // CONTRACT, ACT_KS2, ACT_KS3, WORK_ORDER, INVOICE
+  templateUrl String   // S3 URL шаблона (docx/html)
+  isActive    Boolean  @default(true)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("document_templates")
+}
